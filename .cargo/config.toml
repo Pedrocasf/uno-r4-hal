@@ -1,0 +1,13 @@
+[build]
+target = "thumbv7em-none-eabihf"
+
+[target.thumbv7em-none-eabihf]
+rustflags = [
+  "-C", "link-arg=-Tlink.x",
+]
+
+[alias]
+# The unit tests are pure arithmetic (the baud, I2C, SPI and PWM divider solvers) and
+# run on the host. `--lib` because the examples are `no_main` and only link for ARM.
+# Replace the triple if your host is not Windows x86-64.
+test-host = "test --lib --target x86_64-pc-windows-msvc"

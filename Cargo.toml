@@ -1,0 +1,28 @@
+[package]
+name = "uno-r4-hal"
+version = "0.1.0"
+edition = "2024"
+description = "embedded-hal 1.0 implementation for the Renesas RA4M1 (Arduino Uno R4)"
+license = "MIT OR Apache-2.0"
+categories = ["embedded", "hardware-support", "no-std"]
+keywords = ["arm", "cortex-m", "ra4m1", "renesas", "arduino"]
+
+[dependencies]
+cortex-m = { version = "0.7.9", features = ["critical-section-single-core"] }
+critical-section = "1.2.0"
+embedded-hal = "1.0.0"
+embedded-hal-nb = "1.0.0"
+embedded-io = "0.6.1"
+fugit = "0.3.7"
+nb = "1.1.0"
+ra4m1-pac = { git = "https://github.com/Pedro-Starling-F/ra4m1-pac.git" }
+
+[dev-dependencies]
+cortex-m-rt = "0.7.6"
+panic-halt = "1.0.0"
+
+[profile.release]
+codegen-units = 1
+debug = true
+lto = true
+opt-level = "s"
