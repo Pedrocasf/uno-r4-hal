@@ -17,6 +17,7 @@ built on the [`ra4m1-pac`] peripheral access crate.
 | [`timer`] | AGT0, AGT1 | `DelayNs`, periodic `wait` |
 | [`pwm`] | GPT320/321, GPT162..167 | `SetDutyCycle` |
 | [`mstp`] | module-stop (clock gating) | — |
+| [`board`] | Arduino pin maps for the Minima and the WiFi | — |
 
 All drivers are polled. Nothing here uses interrupts or DMA.
 
@@ -60,16 +61,14 @@ cargo test-host   # = cargo test --lib --target <your host triple>
 the divider solvers are unit tested, but no register sequence here has been
 confirmed against real silicon.
 
-**Pin assignments are yours to check.** `into_alternate` takes any
-[`AltFunction`](gpio::AltFunction) for any pin. Which SCI, IIC, SPI or GPT channel a
-given pin can actually reach is fixed in silicon and listed in the hardware manual's
-multi-function pin table. The drivers take ownership of the pins you hand them and
-require them to be in alternate mode, but they cannot check that you picked pins the
-peripheral can see.
-
-**There is no board pin map.** The Arduino silkscreen names (`D0`..`D13`, `A0`..`A5`)
-are not defined here, because getting them wrong is worse than not having them. They
-come from the Uno R4 schematic, not the MCU datasheet.
+**Pin assignments are yours to check, except on the headers.** For the Uno R4 header
+pins, [`board`] records the MCU pin, the peripheral each bus lands on and the mux
+group it needs. Anywhere else, `into_alternate` takes any
+[`AltFunction`](gpio::AltFunction) for any pin, and which SCI, IIC, SPI or GPT
+channel a given pin can actually reach is fixed in silicon and listed in the hardware
+manual's multi-function pin table. The drivers take ownership of the pins you hand
+them and require them to be in alternate mode, but they cannot check that you picked
+pins the peripheral can see.
 
 **The PAC has two SVD defects this crate works around**, both documented at the point
 of use:
@@ -87,6 +86,43 @@ so it is never compiled in. Use [`take_peripherals`] instead.
 **No interrupt vector table.** The PAC's vector table is behind its own `rt` cfg,
 which is likewise never enabled, so `#[interrupt]` handlers will not be wired up.
 Fixing that needs a change in the PAC.
+
+## Board pin maps
+
+[`board::minima`] and [`board::wifi`] carry the Arduino silkscreen names, transcribed
+from [ArduinoCore-renesas][core] (`variant.cpp` for the header mapping, `pinmux.inc`
+for the per-pin peripheral capabilities).
+
+**The two boards are not pin-compatible underneath.** `D0`, `D1`, `D8`, `D9` and all
+the analog pins share MCU pins, but `D2`..`D7` and `D10`..`D13` do not, and `SPI` is
+SPI1 on the Minima against SPI0 on the WiFi:
+
+| | Minima | WiFi |
+| --- | --- | --- |
+| `LED_BUILTIN` (`D13`) | P111 | P102 |
+| `SPI` MOSI/MISO/SCK | P109 / P110 / P111 (SPI1) | P411 / P410 / P102 (SPI0) |
+| `Serial1` TX/RX | `D1`/`D0` = P302/P301 (SCI2) | `D22`/`D23` = P109/P110 (SCI9) |
+| `Wire` SDA/SCL | `A4`/`A5` = P101/P100 (IIC1) | same |
+
+Each module also has a `mux` submodule giving the exact `AltFunction` every bus
+needs, and an `analog` submodule mapping the analog pins to ADC channels:
+
+```rust
+let pins = board::minima::Pins::new(dp.port0, dp.port1, dp.port3, dp.port5);
+let tx = pins.d1.into_alternate(board::minima::mux::SERIAL1);
+let raw = adc.read(board::minima::analog::A0)?;
+```
+
+Note that `SciGroup1`/`SciGroup2` are mux *groups*, not channel numbers: group 1
+usually carries the even-numbered SCI channels and group 2 the odd ones, but a few
+Uno R4 pins break that pattern, which is why the `mux` constants are transcribed
+per pin rather than derived from a rule.
+
+`Pins::new` consumes whole ports, so any pin it does not name becomes unreachable.
+Split the ports yourself with `GpioExt` if you need one of those; the type aliases
+(`minima::D13<Output<PushPull>>`) work either way.
+
+[core]: https://github.com/arduino/ArduinoCore-renesas
 
 ## Memory layout
 

@@ -1,4 +1,7 @@
-//! Blink a LED on P102 and read a button on P105.
+//! Blink the built-in LED on an Uno R4 Minima, faster while `D2` is pulled low.
+//!
+//! `LED_BUILTIN` is `D13`, which is P111 on the Minima. On a WiFi it is P102, so
+//! swap `board::minima` for `board::wifi` and the pin map follows.
 //!
 //! ```sh
 //! cargo build --example blinky --release
@@ -10,7 +13,7 @@
 use cortex_m_rt::entry;
 use panic_halt as _;
 
-use uno_r4_hal::{clock, delay::Delay, prelude::*};
+use uno_r4_hal::{board::minima, clock, delay::Delay, prelude::*};
 
 #[entry]
 fn main() -> ! {
@@ -20,14 +23,13 @@ fn main() -> ! {
     let clocks = clock::Config::uno_r4().freeze(dp.system);
     let mut delay = Delay::new(cp.SYST, &clocks);
 
-    let p1 = dp.port1.split();
-    let mut led = p1.p102.into_push_pull_output();
-    let mut button = p1.p105.into_pull_up_input();
+    let pins = minima::Pins::new(dp.port0, dp.port1, dp.port3, dp.port5);
+    let mut led = pins.d13.into_push_pull_output();
+    let mut button = pins.d2.into_pull_up_input();
 
     loop {
-        led.set_high().unwrap();
-        delay.delay_ms(if button.is_low().unwrap() { 100 } else { 500 });
-        led.set_low().unwrap();
-        delay.delay_ms(if button.is_low().unwrap() { 100 } else { 500 });
+        let period = if button.is_low().unwrap() { 100 } else { 500 };
+        led.toggle().unwrap();
+        delay.delay_ms(period);
     }
 }

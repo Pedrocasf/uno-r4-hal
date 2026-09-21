@@ -61,25 +61,37 @@ const PFS_PSEL_SHIFT: u32 = 24;
 
 /// A peripheral function that can be muxed onto a pin (`PmnPFS.PSEL`).
 ///
-/// Which functions a given pin can actually take is fixed in silicon; see the
-/// "Multi-Function Pin Controller" table in the RA4M1 hardware manual. Selecting a
-/// function a pin does not have is not an error, it just does nothing useful.
+/// These are *mux groups*, not peripheral instances. A pin reaches at most one
+/// function per group, and which instance that is depends on the pin: the
+/// "Multi-Function Pin Controller" table in the RA4M1 hardware manual is the
+/// authority. [`crate::board`] records the right group for every bus on the Uno R4
+/// headers, so prefer the constants there over guessing.
+///
+/// In particular `SciGroup1` and `SciGroup2` are **not** SCI channels 1 and 2. They
+/// are the two alternate SCI mux groups; on most pins group 1 carries the
+/// even-numbered channels (SCI0, SCI2, ...) and group 2 the odd ones, but there are
+/// per-pin exceptions.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum AltFunction {
     /// AGT timer I/O.
     Agt = 0b00001,
-    /// GPT timer I/O, first group.
-    Gpt1 = 0b00010,
-    /// GPT timer I/O, second group.
-    Gpt2 = 0b00011,
-    /// SCI: RXDn, TXDn, SCKn, CTSn.
-    Sci1 = 0b00100,
-    /// SCI: the alternate CTSn/RTSn/SSn assignments.
-    Sci2 = 0b00101,
-    /// SPI: RSPCKn, MOSIn, MISOn, SSLn.
+    /// GPT timer I/O, mux group 1. FSP calls this `IOPORT_PERIPHERAL_GPT0`.
+    GptGroup1 = 0b00010,
+    /// GPT timer I/O, mux group 2. FSP calls this `IOPORT_PERIPHERAL_GPT1`.
+    ///
+    /// This is the group the Uno R4's GPT header pins use.
+    GptGroup2 = 0b00011,
+    /// SCI mux group 1: `RXDn`, `TXDn`, `SCKn`, `CTSn`.
+    ///
+    /// FSP calls this `IOPORT_PERIPHERAL_SCI0_2_4_6_8`, after the channels it
+    /// usually carries. Not a channel number; see the type-level docs.
+    SciGroup1 = 0b00100,
+    /// SCI mux group 2. FSP calls this `IOPORT_PERIPHERAL_SCI1_3_5_7_9`.
+    SciGroup2 = 0b00101,
+    /// SPI: `RSPCKn`, `MOSIn`, `MISOn`, `SSLn`.
     Spi = 0b00110,
-    /// IIC: SCLn, SDAn.
+    /// IIC: `SCLn`, `SDAn`.
     Iic = 0b00111,
     /// Key interrupt input.
     Kint = 0b01000,

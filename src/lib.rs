@@ -49,6 +49,7 @@
 pub use ra4m1_pac as pac;
 
 pub mod adc;
+pub mod board;
 pub mod clock;
 pub mod delay;
 pub mod gpio;

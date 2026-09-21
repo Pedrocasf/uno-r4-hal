@@ -1,9 +1,11 @@
 //! Asynchronous serial (UART) on the SCI peripherals.
 //!
 //! ```ignore
-//! let tx = p4.p401.into_alternate(AltFunction::Sci1);
-//! let rx = p4.p402.into_alternate(AltFunction::Sci1);
-//! let mut serial = Serial::new(dp.sci0, (tx, rx), Config::baud(115_200), &clocks);
+//! // Serial1 on an Uno R4 Minima: SCI2 on D1/D0.
+//! let pins = board::minima::Pins::new(dp.port0, dp.port1, dp.port3, dp.port5);
+//! let tx = pins.d1.into_alternate(board::minima::mux::SERIAL1);
+//! let rx = pins.d0.into_alternate(board::minima::mux::SERIAL1);
+//! let mut serial = Serial::new(dp.sci2, (tx, rx), Config::baud(115_200), &clocks);
 //! writeln!(serial, "hello").unwrap();
 //! ```
 //!
@@ -11,10 +13,13 @@
 //! [`embedded_hal_nb::serial`] and [`core::fmt::Write`]. Transfers are polled, not
 //! interrupt driven.
 //!
-//! Which pins carry `TXDn`/`RXDn` for a given SCI is fixed in silicon; look it up in
-//! the hardware manual's pin function table. The driver requires that the pins have
-//! been switched to [`AltFunction::Sci1`](crate::gpio::AltFunction::Sci1) and takes
-//! ownership of them, but it cannot check that you picked pins this SCI can reach.
+//! Which pins carry `TXDn`/`RXDn` for a given SCI is fixed in silicon, as is which
+//! of the two SCI mux groups reaches them. For the Uno R4 headers
+//! [`crate::board`] has both already worked out; anywhere else, the
+//! "Multi-Function Pin Controller" table in the hardware manual is the authority.
+//! The driver takes ownership of pins already in
+//! [`crate::gpio::Alternate`] mode, but it cannot check that you picked
+//! pins this SCI can reach.
 
 use core::convert::Infallible;
 use core::marker::PhantomData;

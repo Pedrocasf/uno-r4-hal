@@ -1,15 +1,18 @@
 //! PWM on the GPT peripherals.
 //!
 //! ```ignore
-//! let _ = p1.p105.into_alternate(AltFunction::Gpt1); // GTIOC1A
-//! let pwm = Pwm::new(dp.gpt162, 1.kHz(), &clocks).unwrap();
-//! let (mut a, _b) = pwm.split();
-//! a.enable();
-//! a.set_duty_cycle_percent(25).unwrap();
+//! // D3 on an Uno R4 Minima is P104 = GTIOC1B.
+//! let _ = pins.d3.into_alternate(AltFunction::GptGroup2);
+//! let pwm = Pwm::new(dp.gpt321, 1.kHz(), &clocks).unwrap();
+//! let (_a, mut b) = pwm.split();
+//! b.enable();
+//! b.set_duty_cycle_percent(25).unwrap();
 //! ```
 //!
 //! Each GPT channel drives two outputs, `GTIOCnA` and `GTIOCnB`, which share one
-//! period but have independent duty cycles. Both are exposed as
+//! period but have independent duty cycles. Channel `n` is `pac::Gpt32n` for n in
+//! 0..=1 and `pac::Gpt16n` for n in 2..=7; [`crate::board`] records which channel
+//! and output each header pin reaches. Both are exposed as
 //! [`PwmChannel`]s implementing [`embedded_hal::pwm::SetDutyCycle`].
 //!
 //! The timer runs in saw-wave up-counting mode: the output goes high at the start of
