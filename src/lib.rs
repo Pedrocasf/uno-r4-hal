@@ -11,8 +11,8 @@
 //! let dp = uno_r4_hal::take_peripherals().unwrap();
 //! let cp = cortex_m::Peripherals::take().unwrap();
 //!
-//! // 12 MHz crystal -> PLL -> 48 MHz ICLK.
-//! let clocks = clock::Config::uno_r4().freeze(dp.system);
+//! // HOCO at 48 MHz. Neither Uno R4 has a crystal fitted.
+//! let clocks = clock::Config::uno_r4().freeze(dp.system).unwrap();
 //! let mut delay = Delay::new(cp.SYST, &clocks);
 //!
 //! let p1 = dp.port1.split();

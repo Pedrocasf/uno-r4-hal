@@ -8,9 +8,59 @@
 //!
 //! The resulting [`Clocks`] is a `Copy` snapshot of the frequencies every other
 //! driver needs to compute its own dividers.
+//!
+//! Every wait on an oscillator is bounded. Selecting a source that never arrives —
+//! most obviously the main oscillator on a board with no crystal fitted, which is
+//! every Uno R4 — returns an [`Error`] instead of hanging the boot.
 
-use crate::Hertz;
 use crate::pac;
+use crate::{Hertz, spin_until};
+
+/// Poll budget for one oscillator or mode transition.
+///
+/// These waits all happen before the system clock is switched, so the core is still
+/// on MOCO at 8 MHz: a few hundred thousand polls is well over the millisecond or
+/// two that even a crystal needs, and still gives up in a fraction of a second when
+/// the source is never going to arrive.
+const TIMEOUT: u32 = 1_000_000;
+
+/// Why [`Config::freeze`] could not bring the clock tree up.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Error {
+    /// The main oscillator never reported stable.
+    ///
+    /// Usually means no crystal or external clock is fitted. Neither Uno R4 has one:
+    /// both run from HOCO, so [`Config::uno_r4`] never touches this oscillator.
+    MainOscTimeout,
+    /// The high-speed on-chip oscillator never reported stable.
+    HocoTimeout,
+    /// The PLL never locked.
+    PllTimeout,
+    /// The operating power mode transition did not complete.
+    PowerModeTimeout,
+    /// `SCKSCR` did not read back the requested source.
+    SwitchTimeout,
+    /// [`SysClk::Pll`] was selected without filling in [`Config::pll`].
+    MissingPllConfig,
+    /// The PLL multiplier is outside the 2..=31 the hardware encodes.
+    InvalidPllMultiplier,
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Error::MainOscTimeout => "main oscillator did not stabilise (no crystal fitted?)",
+            Error::HocoTimeout => "high-speed on-chip oscillator did not stabilise",
+            Error::PllTimeout => "PLL did not lock",
+            Error::PowerModeTimeout => "operating power mode transition did not complete",
+            Error::SwitchTimeout => "system clock source did not switch",
+            Error::MissingPllConfig => "SysClk::Pll selected without a PLL configuration",
+            Error::InvalidPllMultiplier => "PLL multiplier outside 2..=31",
+        })
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// System clock source (`SCKSCR.CKSEL`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -162,23 +212,33 @@ impl Config {
         }
     }
 
-    /// The Arduino Uno R4 configuration: 12 MHz crystal, PLL x8 /2, 48 MHz ICLK.
+    /// The Arduino Uno R4 configuration: HOCO at 48 MHz.
     ///
-    /// ICLK, PCLKA and PCLKD run at 48 MHz; PCLKB, PCLKC and FCLK at 24 MHz.
+    /// ICLK, PCLKA, PCLKC and PCLKD run at 48 MHz; PCLKB and FCLK at 24 MHz.
+    ///
+    /// **Neither Uno R4 has a crystal fitted.** The Minima and the WiFi both leave
+    /// XTAL/EXTAL unpopulated and run the whole part from the high-speed on-chip
+    /// oscillator, which is also why HOCO is trimmed to 48 MHz rather than the more
+    /// common 24: USB full-speed needs a 48 MHz UCLK and has nowhere else to get it.
+    /// Starting the main oscillator on one of these boards waits for a stabilisation
+    /// flag that can never assert.
+    ///
+    /// Matches `BSP_CFG_CLOCK_SOURCE`, `BSP_CFG_HOCO_FREQUENCY`, `BSP_CFG_XTAL_HZ`
+    /// and the divider settings in ArduinoCore-renesas,
+    /// `variants/*/includes/ra_gen/bsp_clock_cfg.h` — identical for both boards.
     pub const fn uno_r4() -> Self {
         Self {
-            sysclk: SysClk::Pll,
+            sysclk: SysClk::Hoco,
+            // Unused: there is no crystal. Left at a sane value so a caller who
+            // switches `sysclk` over has a starting point.
             main_osc: Hertz::from_raw(12_000_000),
             main_osc_kind: MainOscKind::Resonator,
-            pll: Some(Pll {
-                mul: 8,
-                div: PllDiv::Div2,
-            }),
+            pll: None,
             hoco: Hertz::from_raw(48_000_000),
             ick: Div::Div1,
             pcka: Div::Div1,
             pckb: Div::Div2,
-            pckc: Div::Div2,
+            pckc: Div::Div1,
             pckd: Div::Div1,
             fck: Div::Div2,
         }
@@ -206,17 +266,17 @@ impl Config {
     /// Consumes the `SYSTEM` peripheral, so the clock tree cannot be reconfigured out
     /// from under a driver that has already cached a frequency.
     ///
-    /// # Panics
-    ///
-    /// If `sysclk` is [`SysClk::Pll`] but `pll` is `None`, or if the PLL multiplier
-    /// is outside 2..=31.
-    pub fn freeze(self, system: pac::System) -> Clocks {
+    /// Every hardware wait is bounded. On a timeout the part is left on whatever
+    /// source it was already running (MOCO at 8 MHz out of reset), the protection
+    /// registers are re-locked, and the [`Error`] says which step gave up — so a
+    /// board with no crystal reports [`Error::MainOscTimeout`] rather than hanging
+    /// before `main` gets anywhere.
+    pub fn freeze(self, system: pac::System) -> Result<Clocks, Error> {
         if self.sysclk == SysClk::Pll {
-            let pll = self.pll.expect("SysClk::Pll selected without Config::pll");
-            assert!(
-                pll.mul >= 2 && pll.mul <= 31,
-                "PLL multiplier must be in 2..=31"
-            );
+            let pll = self.pll.ok_or(Error::MissingPllConfig)?;
+            if pll.mul < 2 || pll.mul > 31 {
+                return Err(Error::InvalidPllMultiplier);
+            }
         }
 
         let source_hz = self.source_hz();
@@ -229,20 +289,27 @@ impl Config {
         if iclk > 32_000_000 {
             // OPCM = 0: high-speed mode.
             system.opccr().write(|w| unsafe { w.bits(0) });
-            while system.opccr().read().opcmtsf().bit_is_set() {}
+            if !spin_until(TIMEOUT, || system.opccr().read().opcmtsf().bit_is_clear()) {
+                protect(&system);
+                return Err(Error::PowerModeTimeout);
+            }
             system.memwait().write(|w| w.memwait().set_bit());
         }
 
-        match self.sysclk {
+        let started = match self.sysclk {
             SysClk::MainOsc => self.start_main_osc(&system),
-            SysClk::Pll => {
-                self.start_main_osc(&system);
-                self.start_pll(&system);
-            }
+            SysClk::Pll => self
+                .start_main_osc(&system)
+                .and_then(|()| self.start_pll(&system)),
             SysClk::Hoco => start_hoco(&system),
             // MOCO, LOCO and the sub-clock are either already running out of reset or
             // are outside what this driver configures.
-            SysClk::Moco | SysClk::Loco | SysClk::SubOsc => {}
+            SysClk::Moco | SysClk::Loco | SysClk::SubOsc => Ok(()),
+        };
+        if let Err(e) = started {
+            // Leave the part on the source it is already running from.
+            protect(&system);
+            return Err(e);
         }
 
         let divs = ((self.fck as u32) << 28)
@@ -256,23 +323,26 @@ impl Config {
         let cksel = self.sysclk.cksel();
         system.sckscr().write(|w| unsafe { w.bits(cksel) });
         // The switch is not instantaneous; spin until the register reads back.
-        while system.sckscr().read().bits() != cksel {}
+        if !spin_until(TIMEOUT, || system.sckscr().read().bits() == cksel) {
+            protect(&system);
+            return Err(Error::SwitchTimeout);
+        }
 
         protect(&system);
 
-        Clocks {
+        Ok(Clocks {
             iclk: Hertz::from_raw(iclk),
             pclka: Hertz::from_raw(source_hz / self.pcka.divisor()),
             pclkb: Hertz::from_raw(source_hz / self.pckb.divisor()),
             pclkc: Hertz::from_raw(source_hz / self.pckc.divisor()),
             pclkd: Hertz::from_raw(source_hz / self.pckd.divisor()),
             fclk: Hertz::from_raw(source_hz / self.fck.divisor()),
-        }
+        })
     }
 
-    fn start_main_osc(&self, system: &pac::System) {
+    fn start_main_osc(&self, system: &pac::System) -> Result<(), Error> {
         if system.mosccr().read().mostp().bit_is_clear() {
-            return; // already running
+            return Ok(()); // already running
         }
         // MOMCR must be written while the oscillator is stopped.
         //   MOSEL  (b6): 0 = resonator, 1 = external clock input
@@ -286,26 +356,42 @@ impl Config {
         // Longest available stabilisation wait. Only paid once, at boot.
         system.moscwtcr().write(|w| unsafe { w.bits(0x09) });
         system.mosccr().write(|w| w.mostp().clear_bit());
-        while system.oscsf().read().moscsf().bit_is_clear() {}
+        if spin_until(TIMEOUT, || system.oscsf().read().moscsf().bit_is_set()) {
+            Ok(())
+        } else {
+            // Stop it again so the caller is left on a known-good source.
+            system.mosccr().write(|w| w.mostp().set_bit());
+            Err(Error::MainOscTimeout)
+        }
     }
 
-    fn start_pll(&self, system: &pac::System) {
-        let pll = self.pll.expect("checked at the top of freeze");
+    fn start_pll(&self, system: &pac::System) -> Result<(), Error> {
+        let pll = self.pll.ok_or(Error::MissingPllConfig)?;
         // PLLCCR2 may only be written while the PLL is stopped.
         system.pllcr().write(|w| w.pllstp().set_bit());
         let pllccr2 = (pll.mul - 1) | ((pll.div as u8) << 6);
         system.pllccr2().write(|w| unsafe { w.bits(pllccr2) });
         system.pllcr().write(|w| w.pllstp().clear_bit());
-        while system.oscsf().read().pllsf().bit_is_clear() {}
+        if spin_until(TIMEOUT, || system.oscsf().read().pllsf().bit_is_set()) {
+            Ok(())
+        } else {
+            system.pllcr().write(|w| w.pllstp().set_bit());
+            Err(Error::PllTimeout)
+        }
     }
 }
 
-fn start_hoco(system: &pac::System) {
+fn start_hoco(system: &pac::System) -> Result<(), Error> {
     if system.hococr().read().hcstp().bit_is_clear() {
-        return;
+        return Ok(());
     }
     system.hococr().write(|w| w.hcstp().clear_bit());
-    while system.oscsf().read().hocosf().bit_is_clear() {}
+    if spin_until(TIMEOUT, || system.oscsf().read().hocosf().bit_is_set()) {
+        Ok(())
+    } else {
+        system.hococr().write(|w| w.hcstp().set_bit());
+        Err(Error::HocoTimeout)
+    }
 }
 
 /// Unlock the clock-generation registers (`PRCR.PRC0` and `PRC1`).
@@ -363,11 +449,11 @@ impl Clocks {
 /// Lets you write `dp.system.freeze(config)` instead of `config.freeze(dp.system)`.
 pub trait ClockConfigExt {
     /// Apply `config` to this `SYSTEM` peripheral.
-    fn freeze(self, config: Config) -> Clocks;
+    fn freeze(self, config: Config) -> Result<Clocks, Error>;
 }
 
 impl ClockConfigExt for pac::System {
-    fn freeze(self, config: Config) -> Clocks {
+    fn freeze(self, config: Config) -> Result<Clocks, Error> {
         config.freeze(self)
     }
 }

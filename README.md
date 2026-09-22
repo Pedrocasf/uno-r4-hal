@@ -29,8 +29,8 @@ use uno_r4_hal::{clock, delay::Delay, prelude::*};
 let dp = uno_r4_hal::take_peripherals().unwrap();
 let cp = cortex_m::Peripherals::take().unwrap();
 
-// 12 MHz crystal -> PLL x8 /2 -> 48 MHz ICLK.
-let clocks = clock::Config::uno_r4().freeze(dp.system);
+// HOCO at 48 MHz. Neither Uno R4 has a crystal fitted.
+let clocks = clock::Config::uno_r4().freeze(dp.system).unwrap();
 let mut delay = Delay::new(cp.SYST, &clocks);
 
 let p1 = dp.port1.split();
@@ -56,6 +56,14 @@ cargo test-host   # = cargo test --lib --target <your host triple>
 ```
 
 ## Things to know before you trust this on hardware
+
+**The clock tree runs from HOCO, not a crystal.** Neither Uno R4 populates
+XTAL/EXTAL: both run the whole part from the 48 MHz high-speed on-chip oscillator,
+which is why HOCO is trimmed to 48 rather than the more usual 24 (USB full-speed
+needs a 48 MHz UCLK and has nowhere else to get it). `Config::uno_r4` selects HOCO
+accordingly. Starting the main oscillator on one of these boards waits for a
+stabilisation flag that can never assert, so `freeze` bounds every wait and returns
+[`clock::Error::MainOscTimeout`] rather than hanging before `main` gets anywhere.
 
 **None of this has been run on a board.** It compiles, links to a valid image, and
 the divider solvers are unit tested, but no register sequence here has been

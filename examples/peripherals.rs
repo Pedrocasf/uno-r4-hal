@@ -40,7 +40,7 @@ use uno_r4_hal::{
 fn main() -> ! {
     let dp = uno_r4_hal::take_peripherals().unwrap();
 
-    let clocks = clock::Config::uno_r4().freeze(dp.system);
+    let clocks = clock::Config::uno_r4().freeze(dp.system).unwrap();
     let pins = minima::Pins::new(dp.port0, dp.port1, dp.port3, dp.port5);
 
     // --- Serial1: SCI2 on D1/D0 -------------------------------------------------

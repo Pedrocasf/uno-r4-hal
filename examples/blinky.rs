@@ -20,7 +20,7 @@ fn main() -> ! {
     let dp = uno_r4_hal::take_peripherals().unwrap();
     let cp = cortex_m::Peripherals::take().unwrap();
 
-    let clocks = clock::Config::uno_r4().freeze(dp.system);
+    let clocks = clock::Config::uno_r4().freeze(dp.system).unwrap();
     let mut delay = Delay::new(cp.SYST, &clocks);
 
     let pins = minima::Pins::new(dp.port0, dp.port1, dp.port3, dp.port5);
