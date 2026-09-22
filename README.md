@@ -55,6 +55,38 @@ prescaler solvers) have unit tests that run on the host:
 cargo test-host   # = cargo test --lib --target <your host triple>
 ```
 
+## Flashing, and bringing up a board
+
+The bundled Arduino dfu-util takes the raw binary. Put the board in the bootloader
+with a **double-tap** of RESET, then:
+
+```bash
+llvm-objcopy -O binary target/thumbv7em-none-eabihf/release/examples/blinky blinky.bin
+dfu-util --device 0x2341:0x0069,:0x0369 -D blinky.bin -a0 -Q
+```
+
+Then a **single** tap of RESET to run it. The distinction matters: a double-tap puts
+the board back in the bootloader, so a program that never seems to start may simply
+never have been given the CPU.
+
+Two things look like failures and are not:
+
+- **The board disappears from USB when your code runs.** Nothing in this crate
+  implements USB, so there is no serial port and no DFU device until you double-tap
+  back into the bootloader.
+- **A slow, smooth fade on the LED is the bootloader, not your program.** It PWM
+  drives `D13` — the same pin as `LED_BUILTIN` — while waiting in DFU. A program
+  from this crate gives hard on/off edges with no fading.
+
+Two examples exist to bisect a board that will not start, both of which signal on
+the LED alone and need no debugger or serial adapter:
+
+- `minimal` — GPIO only, no clock configuration, busy-wait timing. If this blinks,
+  startup, `VTOR` and the whole GPIO path are good.
+- `clockdiag` — sets up the LED *before* touching the clock, then blinks a count
+  identifying which `clock::Error` `freeze` returned, or flickers continuously if it
+  succeeded.
+
 ## Things to know before you trust this on hardware
 
 **The clock tree runs from HOCO, not a crystal.** Neither Uno R4 populates
@@ -65,9 +97,22 @@ accordingly. Starting the main oscillator on one of these boards waits for a
 stabilisation flag that can never assert, so `freeze` bounds every wait and returns
 [`clock::Error::MainOscTimeout`] rather than hanging before `main` gets anywhere.
 
-**None of this has been run on a board.** It compiles, links to a valid image, and
-the divider solvers are unit tested, but no register sequence here has been
-confirmed against real silicon.
+**Partly validated on hardware.** Confirmed on an Uno R4 Minima, flashed over DFU
+through the stock bootloader:
+
+- the bootloader jump and `cortex-m-rt` startup at `0x4000`
+- `relocate_vector_table` moving `VTOR` (observable: the board drops off USB the
+  moment it takes over, because a HAL application has no USB stack)
+- `clock::Config::uno_r4().freeze()` returning `Ok` — HOCO start, `OPCCR`,
+  `MEMWAIT`, `SCKDIVCR` and the `SCKSCR` source switch
+- the GPIO path end to end: `PWPR` unlock, `PmnPFS` mode write, `PCNTR3` set/clear,
+  and `board::minima` mapping `D13` to P111
+- `delay::Delay` on SysTick, blinking at a measured 500 ms, which is also what
+  pins ICLK at 48 MHz rather than a mis-trimmed 24
+
+**Still unproven:** every bus driver — `serial`, `i2c`, `spi`, `adc` and `pwm`.
+Those need a scope or a peer device, and none of their register sequences has been
+confirmed against silicon.
 
 **Pin assignments are yours to check, except on the headers.** For the Uno R4 header
 pins, [`board`] records the MCU pin, the peripheral each bus lands on and the mux
