@@ -40,6 +40,16 @@ pub enum Error {
     UnsupportedFrequency,
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Error::UnsupportedFrequency => "frequency not reachable from the current PCLKD",
+        })
+    }
+}
+
+impl core::error::Error for Error {}
+
 impl embedded_hal::pwm::Error for Error {
     fn kind(&self) -> embedded_hal::pwm::ErrorKind {
         embedded_hal::pwm::ErrorKind::Other
@@ -111,7 +121,7 @@ impl<GPT: Instance> Pwm<GPT> {
     /// disabled and at zero duty.
     pub fn new(gpt: GPT, frequency: Hertz, clocks: &Clocks) -> Result<Self, Error> {
         let (tpcs, period) =
-            divider_for(clocks.pclkd().raw(), frequency.raw()).ok_or(Error::UnsupportedFrequency)?;
+            divider_for(clocks.pclkd().to_raw(), frequency.to_raw()).ok_or(Error::UnsupportedFrequency)?;
 
         mstp::start(GPT::MODULE);
 

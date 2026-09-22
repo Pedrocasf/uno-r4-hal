@@ -37,7 +37,7 @@ impl Delay {
         syst.disable_interrupt();
         Self {
             syst,
-            iclk: clocks.iclk().raw(),
+            iclk: clocks.iclk().to_raw(),
         }
     }
 

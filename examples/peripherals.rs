@@ -48,7 +48,7 @@ fn main() -> ! {
     let rx = pins.d0.into_alternate(mux::SERIAL1);
     let mut serial = Serial::new(dp.sci2, (tx, rx), serial::Config::baud(115_200), &clocks)
         .unwrap();
-    writeln!(serial, "uno-r4-hal up at {} Hz", clocks.iclk().raw()).unwrap();
+    writeln!(serial, "uno-r4-hal up at {} Hz", clocks.iclk().to_raw()).unwrap();
 
     // --- Wire: IIC1 on A4/A5 ----------------------------------------------------
     let sda = pins.a4.into_alternate_open_drain(mux::WIRE);

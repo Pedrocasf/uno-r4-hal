@@ -30,6 +30,16 @@ pub enum Error {
     UnsupportedPeriod,
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Error::UnsupportedPeriod => "period not reachable from the current PCLKB",
+        })
+    }
+}
+
+impl core::error::Error for Error {}
+
 /// An AGT channel.
 ///
 /// # Safety
@@ -80,7 +90,7 @@ impl<AGT: Instance> Timer<AGT> {
         mstp::start(AGT::MODULE);
         let this = Self {
             agt,
-            pclkb: clocks.pclkb().raw(),
+            pclkb: clocks.pclkb().to_raw(),
         };
         this.stop();
         this
@@ -103,7 +113,7 @@ impl<AGT: Instance> Timer<AGT> {
     ///
     /// Restarting an already running timer reloads it from the top.
     pub fn start(&mut self, frequency: Hertz) -> Result<(), Error> {
-        let (tck, reload) = self.divider_for(frequency.raw()).ok_or(Error::UnsupportedPeriod)?;
+        let (tck, reload) = self.divider_for(frequency.to_raw()).ok_or(Error::UnsupportedPeriod)?;
 
         self.stop();
 

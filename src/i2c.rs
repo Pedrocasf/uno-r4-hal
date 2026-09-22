@@ -50,6 +50,22 @@ pub enum Error {
     UnsupportedFrequency,
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Error::NoAcknowledgeAddress => "address not acknowledged",
+            Error::NoAcknowledgeData => "data byte not acknowledged",
+            Error::ArbitrationLoss => "arbitration lost",
+            Error::Timeout => "bus timed out",
+            Error::Busy => "bus was busy",
+            Error::ZeroLengthRead => "zero-length read is not possible",
+            Error::UnsupportedFrequency => "frequency not reachable from the current PCLKB",
+        })
+    }
+}
+
+impl core::error::Error for Error {}
+
 impl embedded_hal::i2c::Error for Error {
     fn kind(&self) -> ErrorKind {
         match self {
@@ -209,7 +225,7 @@ pub struct I2c<IIC, PINS> {
 impl<IIC: Instance, PINS: Pins<IIC>> I2c<IIC, PINS> {
     /// Bring up the channel as a master at `config.frequency`.
     pub fn new(iic: IIC, pins: PINS, config: Config, clocks: &Clocks) -> Result<Self, Error> {
-        let rate = calc_bitrate(clocks.pclkb().raw(), config.frequency)
+        let rate = calc_bitrate(clocks.pclkb().to_raw(), config.frequency)
             .ok_or(Error::UnsupportedFrequency)?;
 
         mstp::start(IIC::MODULE);

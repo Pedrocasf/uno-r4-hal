@@ -187,13 +187,13 @@ impl Config {
     /// Frequency of the selected system clock source, before `SCKDIVCR`.
     pub const fn source_hz(&self) -> u32 {
         match self.sysclk {
-            SysClk::Hoco => self.hoco.raw(),
+            SysClk::Hoco => self.hoco.to_raw(),
             SysClk::Moco => 8_000_000,
             SysClk::Loco => 32_768,
-            SysClk::MainOsc => self.main_osc.raw(),
+            SysClk::MainOsc => self.main_osc.to_raw(),
             SysClk::SubOsc => 32_768,
             SysClk::Pll => match self.pll {
-                Some(pll) => self.main_osc.raw() / pll.div.divisor() * pll.mul as u32,
+                Some(pll) => self.main_osc.to_raw() / pll.div.divisor() * pll.mul as u32,
                 // `freeze` rejects this combination; a hand-built struct that hits it
                 // would produce a nonsense frequency rather than a wrong one.
                 None => 0,
@@ -278,7 +278,7 @@ impl Config {
         //   MOSEL  (b6): 0 = resonator, 1 = external clock input
         //   MODRV1 (b3): 0 = 10..20 MHz, 1 = 1..10 MHz
         let mosel = matches!(self.main_osc_kind, MainOscKind::ExternalClock);
-        let modrv1 = self.main_osc.raw() < 10_000_000;
+        let modrv1 = self.main_osc.to_raw() < 10_000_000;
         system.momcr().write(|w| {
             w.mosel().bit(mosel);
             w.modrv1().bit(modrv1)

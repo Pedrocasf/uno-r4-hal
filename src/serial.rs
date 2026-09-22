@@ -132,6 +132,19 @@ pub enum Error {
     UnsupportedBaudRate,
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Error::Overrun => "receive overrun",
+            Error::Framing => "framing error",
+            Error::Parity => "parity error",
+            Error::UnsupportedBaudRate => "baud rate not reachable from the current PCLKB",
+        })
+    }
+}
+
+impl core::error::Error for Error {}
+
 impl embedded_hal_nb::serial::Error for Error {
     fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
         use embedded_hal_nb::serial::ErrorKind;
@@ -336,7 +349,7 @@ impl<SCI: Instance, PINS: Pins<SCI>> Serial<SCI, PINS> {
         config: Config,
         clocks: &Clocks,
     ) -> Result<Self, Error> {
-        let baud = calc_baud(clocks.pclkb().raw(), config.baudrate)
+        let baud = calc_baud(clocks.pclkb().to_raw(), config.baudrate)
             .ok_or(Error::UnsupportedBaudRate)?;
 
         mstp::start(SCI::MODULE);

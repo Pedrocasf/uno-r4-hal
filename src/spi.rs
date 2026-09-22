@@ -46,6 +46,20 @@ pub enum Error {
     UnsupportedFrequency,
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Error::Overrun => "receive overrun",
+            Error::ModeFault => "mode fault",
+            Error::Parity => "parity error",
+            Error::Timeout => "transfer timed out",
+            Error::UnsupportedFrequency => "bit rate not reachable from the current PCLKA",
+        })
+    }
+}
+
+impl core::error::Error for Error {}
+
 impl embedded_hal::spi::Error for Error {
     fn kind(&self) -> ErrorKind {
         match self {
@@ -251,7 +265,7 @@ pub struct Spi<SPI, PINS> {
 impl<SPI: Instance, PINS: Pins<SPI>> Spi<SPI, PINS> {
     /// Bring up the channel as a master.
     pub fn new(spi: SPI, pins: PINS, config: Config, clocks: &Clocks) -> Result<Self, Error> {
-        let rate = calc_bitrate(clocks.pclka().raw(), config.frequency)
+        let rate = calc_bitrate(clocks.pclka().to_raw(), config.frequency)
             .ok_or(Error::UnsupportedFrequency)?;
 
         mstp::start(SPI::MODULE);

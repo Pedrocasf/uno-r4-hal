@@ -34,6 +34,17 @@ pub enum Error {
     InvalidChannel,
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Error::Timeout => "conversion timed out",
+            Error::InvalidChannel => "channel is not implemented on this part",
+        })
+    }
+}
+
+impl core::error::Error for Error {}
+
 /// Result resolution.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Resolution {
